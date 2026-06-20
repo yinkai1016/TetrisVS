@@ -127,19 +127,11 @@ function panel(ctx: Ctx, x: number, y: number, w: number, h: number): void {
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
-export function renderGame(ctx: Ctx, state: GameState, layout: Layout = DEFAULT_LAYOUT): void {
-  const { cell, boardX, boardY } = layout;
+/** 棋盘区绘制：背景 + 已锁定格子 + ghost + 活动方块（桌面/手机共用）。 */
+function drawBoardArea(ctx: Ctx, state: GameState, boardX: number, boardY: number, cell: number): void {
   const visibleRows = BOARD_HEIGHT - BUFFER_ROWS;
-
-  // 整屏背景
-  ctx.fillStyle = '#0a0c10';
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-  // 棋盘背景
   ctx.fillStyle = '#0f1218';
   ctx.fillRect(boardX - 3, boardY - 3, BOARD_WIDTH * cell + 6, visibleRows * cell + 6);
-
-  // 已锁定格子
   for (let r = BUFFER_ROWS; r < BOARD_HEIGHT; r++) {
     for (let c = 0; c < BOARD_WIDTH; c++) {
       const t = state.board[r][c];
@@ -149,8 +141,6 @@ export function renderGame(ctx: Ctx, state: GameState, layout: Layout = DEFAULT_
       }
     }
   }
-
-  // ghost piece（硬降位置，半透明）
   const ghost = hardDropPiece(state.active, state.board);
   ctx.globalAlpha = 0.22;
   for (const g of pieceCells(ghost)) {
@@ -159,13 +149,23 @@ export function renderGame(ctx: Ctx, state: GameState, layout: Layout = DEFAULT_
     }
   }
   ctx.globalAlpha = 1;
-
-  // 活动方块（缓冲区内的部分不绘制）
   for (const pc of pieceCells(state.active)) {
     if (pc.y >= BUFFER_ROWS) {
       fillCell(ctx, boardX + pc.x * cell, boardY + (pc.y - BUFFER_ROWS) * cell, cell, COLORS[state.active.type]);
     }
   }
+}
+
+export function renderGame(ctx: Ctx, state: GameState, layout: Layout = DEFAULT_LAYOUT): void {
+  const { cell, boardX, boardY } = layout;
+  const visibleRows = BOARD_HEIGHT - BUFFER_ROWS;
+
+  // 整屏背景
+  ctx.fillStyle = '#0a0c10';
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  // 棋盘背景 + 已锁定 + ghost + 活动方块
+  drawBoardArea(ctx, state, boardX, boardY, cell);
 
   // Hold 面板
   panel(ctx, layout.holdX, layout.holdY, layout.panelW, layout.holdH);
@@ -251,4 +251,135 @@ export function drawOpponents(
     ctx.textAlign = 'left';
     ctx.fillText(`${opp.name}${isTarget ? ' ◀' : ''}${opp.alive ? '' : ' (OUT)'}`, x, y - 8);
   });
+}
+
+// ===== 手机竖屏布局 =====
+
+export interface MobileLayout {
+  canvasW: number;
+  canvasH: number;
+  cell: number; // 棋盘格
+  boardX: number;
+  boardY: number;
+  sideCell: number; // Hold/Next mini 格
+  holdX: number;
+  holdY: number;
+  holdW: number;
+  holdH: number;
+  nextX: number;
+  nextY: number;
+  nextW: number;
+  energyX: number;
+  energyY: number;
+  oppY: number;
+  oppCell: number; // 对手迷你格
+  oppSlotW: number;
+}
+
+/** 手机竖屏布局（缩小以与按键区同屏，具体手玩微调）。 */
+export const MOBILE_LAYOUT: MobileLayout = {
+  canvasW: 320,
+  canvasH: 380,
+  cell: 12, // 棋盘 120×240
+  boardX: 100, // (320-120)/2 居中
+  boardY: 110,
+  sideCell: 8,
+  holdX: 8,
+  holdY: 4,
+  holdW: 48,
+  holdH: 38,
+  nextX: 64,
+  nextY: 4,
+  nextW: 48,
+  energyX: 230,
+  energyY: 4,
+  oppY: 48,
+  oppCell: 3, // 对手迷你 30×60
+  oppSlotW: 56,
+};
+
+/** 顶部横向对手迷你条（联机用），当前目标高亮。 */
+export function drawOpponentStrip(
+  ctx: Ctx,
+  opponents: OpponentView[],
+  targetId: string | null,
+  x: number,
+  y: number,
+  cell: number,
+  slotW: number,
+): void {
+  opponents.forEach((opp, i) => {
+    const ox = x + i * slotW;
+    const isTarget = opp.id === targetId && opp.alive;
+    ctx.lineWidth = isTarget ? 2 : 1;
+    ctx.strokeStyle = isTarget ? '#ffd54a' : '#2a2d33';
+    ctx.strokeRect(ox, y, BOARD_WIDTH * cell, BOARD_VISIBLE_HEIGHT * cell);
+    for (let r = 0; r < opp.board.length; r++) {
+      for (let c = 0; c < BOARD_WIDTH; c++) {
+        const t = opp.board[r][c];
+        if (t) {
+          ctx.fillStyle = opp.alive ? (t === 'G' ? GARBAGE_COLOR : COLORS[t]) : '#3a3a3a';
+          ctx.fillRect(ox + c * cell, y + r * cell, cell, cell);
+        }
+      }
+    }
+    ctx.fillStyle = isTarget ? '#ffd54a' : '#888';
+    ctx.font = '9px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText(opp.name.slice(0, 5), ox, y - 2);
+  });
+}
+
+/** 手机竖屏渲染：顶部对手条 + 信息条(Hold/Next/能量) + 棋盘 + 遮罩。 */
+export function renderMobile(
+  ctx: Ctx,
+  state: GameState,
+  opponents: OpponentView[],
+  targetId: string | null,
+  layout: MobileLayout = MOBILE_LAYOUT,
+): void {
+  const { cell, boardX, boardY } = layout;
+  const visibleRows = BOARD_HEIGHT - BUFFER_ROWS;
+
+  ctx.fillStyle = '#0a0c10';
+  ctx.fillRect(0, 0, layout.canvasW, layout.canvasH);
+
+  // 对手顶部迷你条
+  if (opponents.length) {
+    drawOpponentStrip(ctx, opponents, targetId, 8, layout.oppY, layout.oppCell, layout.oppSlotW);
+  }
+
+  // 信息条：Hold / Next / 能量
+  ctx.fillStyle = '#666';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('HOLD', layout.holdX, layout.holdY + 8);
+  if (state.hold.holdSlot) {
+    drawPiecePreview(ctx, state.hold.holdSlot, layout.holdX, layout.holdY + 12, layout.holdW, layout.holdH - 12, layout.sideCell);
+  }
+  ctx.fillText('NEXT', layout.nextX, layout.nextY + 8);
+  const next0 = state.queue.peek(1)[0];
+  if (next0) {
+    drawPiecePreview(ctx, next0, layout.nextX, layout.nextY + 12, layout.nextW, layout.holdH - 12, layout.sideCell);
+  }
+  ctx.fillStyle = '#ffd54a';
+  ctx.font = '14px system-ui';
+  ctx.fillText(`⚡${state.energy}/${ENERGY_MAX}`, layout.energyX, layout.energyY + 16);
+
+  // 棋盘
+  drawBoardArea(ctx, state, boardX, boardY, cell);
+
+  // 暂停 / 结束遮罩
+  if (state.paused || state.phase === 'GameOver') {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(boardX, boardY, BOARD_WIDTH * cell, visibleRows * cell);
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      state.phase === 'GameOver' ? 'GAME OVER' : 'PAUSED',
+      boardX + (BOARD_WIDTH * cell) / 2,
+      boardY + (visibleRows * cell) / 2,
+    );
+  }
 }

@@ -13,6 +13,21 @@ body {
   padding: 0;
   background: #0f1115;
   color: #e6e6e6;
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+canvas,
+#app,
+.menu,
+.lobby,
+.result,
+.touch-pad {
+  touch-action: none;
 }
 
 #app {
@@ -167,5 +182,134 @@ canvas#game {
 .result h2 {
   margin: 0;
   font-size: 22px;
+}
+
+/* 横屏小屏遮罩：提示转回竖屏 */
+#rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #0f1115;
+  color: #e6e6e6;
+  font-size: 20px;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  #rotate-hint {
+    display: flex;
+  }
+}
+
+/* 手机端：隐藏键盘 help（虚拟键替代） */
+@media (pointer: coarse) {
+  #help {
+    display: none;
+  }
+}
+
+/* ===== 手机端：虚拟按键（流式，左右分两侧） ===== */
+.touch-pad {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 10px 18px calc(12px + env(safe-area-inset-bottom)) 18px;
+  gap: 20px;
+  background: rgba(15, 17, 21, 0.5);
+}
+/* 左手方向键：两行菱形（上独排，左下右一排） */
+.pad-dir {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(2, 56px);
+  gap: 6px;
+}
+.pad-pos-up {
+  grid-area: 1 / 2;
+}
+.pad-pos-left {
+  grid-area: 2 / 1;
+}
+.pad-pos-down {
+  grid-area: 2 / 2;
+}
+.pad-pos-right {
+  grid-area: 2 / 3;
+}
+/* 右手动作键：上排 + 下排 */
+.pad-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pad-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.pad-btn {
+  width: 56px;
+  height: 56px;
+  font-size: 26px;
+  border: 1px solid #2a2d33;
+  color: #e6e6e6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 方向键：圆形，浅灰 */
+.pad-key {
+  border-radius: 50%;
+  background: rgba(58, 63, 71, 0.92);
+}
+/* 动作键：方角，深灰 */
+.pad-act {
+  border-radius: 12px;
+  background: rgba(42, 46, 53, 0.92);
+}
+.pad-btn:active {
+  background: #6b7280;
+  color: #fff;
+  transform: scale(0.94);
+}
+.pad-btn-attack {
+  background: rgba(90, 95, 103, 0.92);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* 手机单机：常驻退出按钮 */
+.back-btn {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 60;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  background: rgba(31, 36, 44, 0.92);
+  color: #e6e6e6;
+}
+
+/* 手机端：canvas / 菜单响应式 */
+@media (pointer: coarse) {
+  canvas#game {
+    max-width: 100%;
+    max-height: calc(100vh - 200px);
+    width: auto;
+    height: auto;
+  }
+  .menu,
+  .lobby,
+  .result {
+    max-width: 92vw;
+  }
+  h1 {
+    font-size: 14px;
+  }
 }
 

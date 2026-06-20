@@ -1,11 +1,14 @@
 // 应用入口：屏幕状态机（菜单 / 单机 / 房间大厅 / 联机对局）。
+// 桌面 = 键盘 + 宽屏；手机（pointer:coarse）= 虚拟按键 + 竖屏布局。游戏逻辑共用。
 import { Action, GameState, createGame, dispatch, restart, step } from './game/engine';
 import { ClientAction, InputController } from './game/input';
-import { renderGame } from './game/renderer';
+import { MOBILE_LAYOUT, renderGame, renderMobile } from './game/renderer';
 import { GameStartPayload, Net } from './game/net';
 import { MultiplayerSession } from './game/multiplayer';
 import { showMenu } from './ui/menu';
 import { Lobby } from './ui/lobby';
+import { isTouchDevice, setupCanvasDpi } from './game/platform';
+import { TouchControls } from './game/touch-controls';
 import { TICK_MS } from '../shared/constants';
 
 const canvasEl = document.getElementById('game');
@@ -15,6 +18,8 @@ const ctx = canvas.getContext('2d')!;
 const overlayEl = document.getElementById('overlay');
 if (!overlayEl) throw new Error('#overlay 未找到');
 const overlay = overlayEl as HTMLElement;
+
+const touch = isTouchDevice();
 
 let net: Net | null = null;
 let lobby: Lobby | null = null;
@@ -35,6 +40,7 @@ function clearScreen(): void {
     lobby = null;
   }
   overlay.innerHTML = '';
+  overlay.style.display = '';
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
@@ -53,10 +59,35 @@ function startSingle(): void {
   canvas.style.display = 'block';
 
   let state: GameState = createGame((Date.now() >>> 0) || 1);
-  const input = new InputController(window, (a: ClientAction) => {
-    state = dispatch(state, a as Action);
-  });
-  input.attach();
+
+  // 输入：手机用虚拟按键，桌面用键盘
+  let pollFn: (dt: number) => void;
+  let cleanupInput: () => void;
+  if (touch) {
+    setupCanvasDpi(canvas, MOBILE_LAYOUT.canvasW, MOBILE_LAYOUT.canvasH);
+    // 手机单机：常驻退出按钮（无键盘 Esc）
+    const back = document.createElement('button');
+    back.textContent = '← 退出';
+    back.className = 'back-btn';
+    back.onclick = () => gotoMenu();
+    overlay.appendChild(back);
+    const tc = new TouchControls(overlay, (a: ClientAction) => {
+      state = dispatch(state, a as Action);
+    });
+    tc.attach();
+    pollFn = (dt) => tc.poll(dt);
+    cleanupInput = () => {
+      tc.detach();
+      back.remove();
+    };
+  } else {
+    const input = new InputController(window, (a: ClientAction) => {
+      state = dispatch(state, a as Action);
+    });
+    input.attach();
+    pollFn = (dt) => input.poll(dt);
+    cleanupInput = () => input.detach();
+  }
 
   let raf = 0;
   let last = performance.now();
@@ -65,14 +96,15 @@ function startSingle(): void {
     if (e.code === 'KeyR' && !e.repeat) state = restart((Date.now() >>> 0) || 1);
     if (e.code === 'Escape') {
       if (window.confirm('返回主菜单？当前对局将放弃。')) gotoMenu();
-      return;
     }
   };
   const onBlur = () => {
     if (!state.paused && state.phase !== 'GameOver') state = dispatch(state, 'pause');
   };
-  window.addEventListener('keydown', onKey);
-  window.addEventListener('blur', onBlur);
+  if (!touch) {
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', onBlur);
+  }
 
   const loop = () => {
     const now = performance.now();
@@ -81,20 +113,23 @@ function startSingle(): void {
     if (dt > 250) dt = 250;
     acc += dt;
     while (acc >= TICK_MS) {
-      input.poll(TICK_MS);
+      pollFn(TICK_MS);
       state = step(state, TICK_MS);
       acc -= TICK_MS;
     }
-    renderGame(ctx, state);
+    if (touch) renderMobile(ctx, state, [], null);
+    else renderGame(ctx, state);
     raf = requestAnimationFrame(loop);
   };
   raf = requestAnimationFrame(loop);
 
   singleCleanup = () => {
     cancelAnimationFrame(raf);
-    input.detach();
-    window.removeEventListener('keydown', onKey);
-    window.removeEventListener('blur', onBlur);
+    cleanupInput();
+    if (!touch) {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', onBlur);
+    }
   };
 }
 
@@ -118,14 +153,16 @@ function startMulti(): void {
 function onGameStart(payload: GameStartPayload): void {
   if (!net) return;
   overlay.innerHTML = '';
+  overlay.style.display = 'none';
   lobby = null;
   canvas.style.display = 'block';
-  session = new MultiplayerSession({ ctx, net, onGameEnd: (_winner, isSelf) => showResult(isSelf) });
+  session = new MultiplayerSession({ ctx, canvas, net, touch, parentContainer: document.getElementById('app') as HTMLElement, onGameEnd: (_winner, isSelf) => showResult(isSelf) });
   session.start(payload);
 }
 
 function showResult(isSelf: boolean): void {
   overlay.innerHTML = '';
+  overlay.style.display = '';
   canvas.style.display = 'none';
   const card = document.createElement('div');
   card.className = 'result';
@@ -153,6 +190,7 @@ function backToLobby(): void {
     return;
   }
   overlay.innerHTML = '';
+  overlay.style.display = '';
   canvas.style.display = 'none';
   lobby = new Lobby(overlay, net, { onBack: gotoMenu });
 }
